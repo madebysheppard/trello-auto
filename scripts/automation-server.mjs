@@ -23,6 +23,7 @@
 
 import http from 'http';
 import { loadCredentials } from './lib/credentials.mjs';
+import { archiveCompleted } from './lib/archive.mjs';
 
 const { apiKey: API_KEY, token: TOKEN } = loadCredentials();
 const PORT    = parseInt(process.env.PORT ?? '3000', 10);
@@ -164,6 +165,28 @@ const server = http.createServer((req, res) => {
   });
 });
 
+// --- Scheduled archive (daily at 06:00 UTC) ---
+
+function scheduleDailyArchive() {
+  const now = new Date();
+  const next = new Date();
+  next.setUTCHours(6, 0, 0, 0);
+  if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+  const msUntilNext = next - now;
+
+  setTimeout(async () => {
+    console.log('[cron] Running daily archive check…');
+    try {
+      await archiveCompleted({ apiKey: API_KEY, token: TOKEN, boardId: BOARD_ID });
+    } catch (err) {
+      console.error('[cron] Archive error:', err.message);
+    }
+    scheduleDailyArchive();
+  }, msUntilNext);
+
+  console.log(`[cron] Archive check scheduled for ${next.toISOString()}`);
+}
+
 // --- Start ---
 
 await refreshBoardState();
@@ -173,3 +196,5 @@ server.listen(PORT, () => {
   console.log('[server] Register this with Trello using:');
   console.log(`[server]   node scripts/register-webhook.mjs <your-public-https-url>`);
 });
+
+scheduleDailyArchive();
