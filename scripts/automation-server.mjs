@@ -24,6 +24,7 @@
 import http from 'http';
 import { loadCredentials } from './lib/credentials.mjs';
 import { archiveCompleted } from './lib/archive.mjs';
+import { runPriceCheck } from './lib/price-check.mjs';
 
 const { apiKey: API_KEY, token: TOKEN } = loadCredentials();
 const PORT    = parseInt(process.env.PORT ?? '3000', 10);
@@ -165,6 +166,31 @@ const server = http.createServer((req, res) => {
   });
 });
 
+// --- Scheduled price check (every Sunday at 08:00 UTC) ---
+
+function schedulePriceCheck() {
+  const now = new Date();
+  const next = new Date();
+  // Roll forward to next Sunday
+  const daysUntilSunday = (7 - now.getUTCDay()) % 7 || 7;
+  next.setUTCDate(now.getUTCDate() + daysUntilSunday);
+  next.setUTCHours(8, 0, 0, 0);
+  if (next <= now) next.setUTCDate(next.getUTCDate() + 7);
+  const msUntilNext = next - now;
+
+  setTimeout(async () => {
+    console.log('[cron] Running weekly price check…');
+    try {
+      await runPriceCheck({ apiKey: API_KEY, token: TOKEN, boardId: BOARD_ID });
+    } catch (err) {
+      console.error('[cron] Price check error:', err.message);
+    }
+    schedulePriceCheck();
+  }, msUntilNext);
+
+  console.log(`[cron] Price check scheduled for ${next.toISOString()}`);
+}
+
 // --- Scheduled archive (daily at 06:00 UTC) ---
 
 function scheduleDailyArchive() {
@@ -189,6 +215,7 @@ function scheduleDailyArchive() {
 
 // --- Start ---
 
+
 await refreshBoardState();
 
 server.listen(PORT, () => {
@@ -198,3 +225,4 @@ server.listen(PORT, () => {
 });
 
 scheduleDailyArchive();
+schedulePriceCheck();
